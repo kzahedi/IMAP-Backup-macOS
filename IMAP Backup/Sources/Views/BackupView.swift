@@ -22,14 +22,14 @@ struct BackupView: View {
                 
                 // Control buttons
                 HStack(spacing: 12) {
-                    if !appState.backupProgress.isRunning {
+                    if !appState.backupProgress.isRunning && !backupService.isRunning {
                         Button("Open Backup Folder") {
                             NSWorkspace.shared.open(appState.backupDirectory)
                         }
                         .buttonStyle(.bordered)
                     }
                     
-                    if appState.backupProgress.isRunning {
+                    if appState.backupProgress.isRunning || backupService.isRunning {
                         Button("Cancel") {
                             backupService.cancelBackup()
                         }
@@ -48,7 +48,7 @@ struct BackupView: View {
             .padding(.top, 20)
             .padding(.bottom, 16)
             
-            if appState.backupProgress.isRunning {
+            if appState.backupProgress.isRunning || backupService.isRunning {
                 BackupProgressView()
             } else {
                 BackupStatusView()

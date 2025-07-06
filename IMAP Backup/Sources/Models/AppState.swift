@@ -10,8 +10,8 @@ class AppState: ObservableObject {
     @Published var showingAccountDetail = false
     @Published var backupDirectory: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!.appendingPathComponent("IMAP Backups")
     
-    private let accountsKey = "stored_accounts"
-    private let backupDirectoryKey = "backup_directory"
+    private let accountsKey = "com.imapbackup.macos.stored_accounts"
+    private let backupDirectoryKey = "com.imapbackup.macos.backup_directory"
     
     init() {
         loadAccounts()

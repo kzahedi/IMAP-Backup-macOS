@@ -21,12 +21,14 @@ class BackupService: ObservableObject {
         }
         
         isRunning = true
+        logger.info("Starting backup for \(accounts.count) accounts")
         
         currentTask = Task {
             await progress.startBackup(accounts: accounts)
             
             do {
                 try await performBackup(accounts: accounts, backupDirectory: backupDirectory, progress: progress)
+                logger.info("Backup completed successfully")
                 await progress.completeBackup()
             } catch {
                 logger.error("Backup failed: \(error)")
@@ -36,7 +38,9 @@ class BackupService: ObservableObject {
                 )
             }
             
-            isRunning = false
+            await MainActor.run {
+                isRunning = false
+            }
         }
     }
     
@@ -63,13 +67,15 @@ class BackupService: ObservableObject {
             do {
                 try await backupAccount(account, backupDirectory: backupDirectory, progress: progress)
                 await progress.updateAccountProgress(accountName: account.name, isComplete: true)
+                logger.info("Successfully completed backup for account: \(account.name)")
             } catch {
                 logger.error("Failed to backup account \(account.name): \(error)")
                 await progress.updateAccountProgress(
                     accountName: account.name,
                     error: "Failed to backup: \(error.localizedDescription)"
                 )
-                throw error
+                // Don't throw error, continue with other accounts
+                continue
             }
         }
     }
@@ -115,6 +121,9 @@ class BackupService: ObservableObject {
                 currentFolder: folder.name
             )
             
+            // Add a small delay to make progress visible
+            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            
             let newEmails = try await backupFolder(
                 folder,
                 connection: connection,
@@ -130,6 +139,8 @@ class BackupService: ObservableObject {
                 completedFolders: completedFolders,
                 newEmails: totalNewEmails
             )
+            
+            logger.info("Completed folder \(folder.name): \(newEmails) new emails")
         }
         
         logger.info("Completed backup for account: \(account.name), new emails: \(totalNewEmails)")
