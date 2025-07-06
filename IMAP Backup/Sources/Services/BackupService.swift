@@ -28,18 +28,23 @@ class BackupService: ObservableObject {
         }
         
         currentTask = Task {
-            await progress.startBackup(accounts: accounts)
-            
             do {
+                await progress.startBackup(accounts: accounts)
+                
                 try await performBackup(accounts: accounts, backupDirectory: backupDirectory, progress: progress)
                 logger.info("\n🎉 === BACKUP COMPLETED SUCCESSFULLY ===")
                 await progress.completeBackup()
             } catch {
-                logger.error("Backup failed: \(error)")
+                logger.error("💥 BACKUP FAILED: \(error)")
+                logger.error("Error details: \(error.localizedDescription)")
+                
                 await progress.updateAccountProgress(
-                    accountName: progress.currentAccount,
-                    error: error.localizedDescription
+                    accountName: progress.currentAccount.isEmpty ? "Unknown" : progress.currentAccount,
+                    error: "Backup failed: \(error.localizedDescription)"
                 )
+                
+                // Don't crash the app, just log and complete
+                await progress.completeBackup()
             }
             
             await MainActor.run {
@@ -213,58 +218,73 @@ class BackupService: ObservableObject {
     }
     
     nonisolated private func saveMessage(_ message: IMAPMessage, to folderDir: URL) async throws {
-        // Generate filename using sender_date format like Go implementation
-        let senderName = message.from.extractSenderName()
-        let dateString = message.date.formattedFilename()
-        let baseFilename = "\(senderName)_\(dateString)"
-        
-        let messageFile = folderDir.appendingPathComponent("\(baseFilename).eml")
-        let metadataFile = folderDir.appendingPathComponent("\(baseFilename).json")
-        
-        // Save raw message
-        try message.body.write(to: messageFile)
-        
-        // Create attachments directory if message has attachments
-        var attachmentFilenames: [String] = []
-        if !message.attachments.isEmpty {
-            let attachmentsDir = folderDir.appendingPathComponent("attachments").appendingPathComponent(baseFilename)
-            try FileManager.default.createDirectory(at: attachmentsDir, withIntermediateDirectories: true)
+        do {
+            // Generate filename using sender_date format like Go implementation
+            let senderName = message.from.extractSenderName()
+            let dateString = message.date.formattedFilename()
+            let baseFilename = "\(senderName)_\(dateString)"
             
-            for (index, attachment) in message.attachments.enumerated() {
-                let sanitizedName = attachment.filename.sanitizedForFilename()
-                let attachmentFile = attachmentsDir.appendingPathComponent(sanitizedName)
+            let messageFile = folderDir.appendingPathComponent("\(baseFilename).eml")
+            let metadataFile = folderDir.appendingPathComponent("\(baseFilename).json")
+            
+            // Save raw message
+            try message.body.write(to: messageFile)
+            
+            // Create attachments directory if message has attachments
+            var attachmentFilenames: [String] = []
+            if !message.attachments.isEmpty {
+                let attachmentsDir = folderDir.appendingPathComponent("attachments").appendingPathComponent(baseFilename)
+                try FileManager.default.createDirectory(at: attachmentsDir, withIntermediateDirectories: true)
                 
-                // Handle duplicate filenames by appending index
-                var finalAttachmentFile = attachmentFile
-                if FileManager.default.fileExists(atPath: attachmentFile.path) {
-                    let fileExtension = attachmentFile.pathExtension
-                    let nameWithoutExtension = attachmentFile.deletingPathExtension().lastPathComponent
-                    finalAttachmentFile = attachmentsDir.appendingPathComponent("\(nameWithoutExtension)_\(index).\(fileExtension)")
+                for (index, attachment) in message.attachments.enumerated() {
+                    do {
+                        let sanitizedName = attachment.filename.sanitizedForFilename()
+                        if sanitizedName.isEmpty {
+                            continue // Skip invalid filenames
+                        }
+                        
+                        let attachmentFile = attachmentsDir.appendingPathComponent(sanitizedName)
+                        
+                        // Handle duplicate filenames by appending index
+                        var finalAttachmentFile = attachmentFile
+                        if FileManager.default.fileExists(atPath: attachmentFile.path) {
+                            let fileExtension = attachmentFile.pathExtension
+                            let nameWithoutExtension = attachmentFile.deletingPathExtension().lastPathComponent
+                            finalAttachmentFile = attachmentsDir.appendingPathComponent("\(nameWithoutExtension)_\(index).\(fileExtension)")
+                        }
+                        
+                        try attachment.data.write(to: finalAttachmentFile)
+                        attachmentFilenames.append(finalAttachmentFile.lastPathComponent)
+                    } catch {
+                        print("Failed to save attachment \(attachment.filename): \(error)")
+                        // Continue with other attachments
+                    }
                 }
-                
-                try attachment.data.write(to: finalAttachmentFile)
-                attachmentFilenames.append(finalAttachmentFile.lastPathComponent)
             }
+            
+            // Save metadata with attachment info
+            let metadata = MessageMetadata(
+                uid: message.uid,
+                flags: message.flags,
+                subject: message.subject,
+                from: message.from,
+                to: message.to,
+                date: message.date,
+                size: message.size,
+                headers: message.headers,
+                attachments: attachmentFilenames
+            )
+            
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = .prettyPrinted
+            let metadataData = try encoder.encode(metadata)
+            try metadataData.write(to: metadataFile)
+            
+        } catch {
+            print("Failed to save message \(message.subject): \(error)")
+            throw error
         }
-        
-        // Save metadata with attachment info
-        let metadata = MessageMetadata(
-            uid: message.uid,
-            flags: message.flags,
-            subject: message.subject,
-            from: message.from,
-            to: message.to,
-            date: message.date,
-            size: message.size,
-            headers: message.headers,
-            attachments: attachmentFilenames
-        )
-        
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = .prettyPrinted
-        let metadataData = try encoder.encode(metadata)
-        try metadataData.write(to: metadataFile)
     }
 }
 

@@ -98,9 +98,9 @@ extension String {
     
     /// Extracts sender name from email address like "Name <email@domain.com>" or "email@domain.com"
     func extractSenderName() -> String {
-        // Try to extract name from "Name <email@domain.com>" format
-        if let match = self.range(of: #"^([^<]+)<"#, options: .regularExpression) {
-            let name = String(self[match]).replacingOccurrences(of: "<", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // Try to extract name from "Name <email@domain.com>" format using simple string operations
+        if let angleIndex = self.firstIndex(of: "<") {
+            let name = String(self[..<angleIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
             if !name.isEmpty {
                 return name.sanitizedForFilename()
             }
@@ -108,14 +108,14 @@ extension String {
         
         // Fall back to email address local part
         if let atIndex = self.firstIndex(of: "@") {
-            let localPart = String(self[..<atIndex])
+            let localPart = String(self[..<atIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
             if !localPart.isEmpty {
                 return localPart.sanitizedForFilename()
             }
         }
         
         // If all else fails, sanitize the whole string
-        let sanitized = self.sanitizedForFilename()
+        let sanitized = self.trimmingCharacters(in: .whitespacesAndNewlines).sanitizedForFilename()
         return sanitized.isEmpty ? "Unknown" : sanitized
     }
 }
