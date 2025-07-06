@@ -140,7 +140,7 @@ final class IMAPConnection: @unchecked Sendable {
         let messageCount = folder == "INBOX" ? 5 : (folder == "Sent" ? 3 : 2) // Different counts per folder
         
         for i in 1...messageCount {
-            let uid = UInt32((folder.hashValue % 1000) * 100 + i) // Generate unique UIDs per folder
+            let uid = UInt32(abs(folder.hashValue % 1000) * 100 + i) // Generate unique UIDs per folder
             
             // Skip if already excluded
             if excludingUIDs.contains(uid) {
