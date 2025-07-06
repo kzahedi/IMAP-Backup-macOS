@@ -48,6 +48,76 @@ extension String {
             return String(self.prefix(length)) + trailing
         }
     }
+    
+    /// Sanitizes a string for use as a filename by replacing problematic characters
+    func sanitizedForFilename() -> String {
+        // Character replacement map for filesystem safety (matching Go implementation)
+        let replacements: [Character: String] = [
+            "/": "_",
+            "\\": "_",
+            ":": "_",
+            "*": "_",
+            "?": "_",
+            "\"": "_",
+            "<": "_",
+            ">": "_",
+            "|": "_",
+            " ": "_",
+            ".": "_",
+            "\t": "_",
+            "\n": "_",
+            "\r": "_"
+        ]
+        
+        var sanitized = ""
+        for char in self {
+            if let replacement = replacements[char] {
+                sanitized += replacement
+            } else if char.isASCII && !char.isWhitespace {
+                sanitized += String(char)
+            } else {
+                sanitized += "_"
+            }
+        }
+        
+        // Trim underscores from start and end
+        sanitized = sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        
+        // Limit length for filesystem compatibility
+        if sanitized.count > 50 {
+            sanitized = String(sanitized.prefix(50))
+        }
+        
+        // Ensure we have something if everything was filtered out
+        if sanitized.isEmpty {
+            sanitized = "Unknown"
+        }
+        
+        return sanitized
+    }
+    
+    /// Extracts sender name from email address like "Name <email@domain.com>" or "email@domain.com"
+    func extractSenderName() -> String {
+        // Try to extract name from "Name <email@domain.com>" format
+        if let match = self.range(of: #"^([^<]+)<"#, options: .regularExpression) {
+            let name = String(self[match]).replacingOccurrences(of: "<", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty {
+                return name.sanitizedForFilename()
+            }
+        }
+        
+        // Fall back to email address local part
+        if let atIndex = self.firstIndex(of: "@") {
+            let localPart = String(self[..<atIndex])
+            if !localPart.isEmpty {
+                return localPart.sanitizedForFilename()
+            }
+        }
+        
+        // If all else fails, sanitize the whole string
+        let sanitized = self.sanitizedForFilename()
+        return sanitized.isEmpty ? "Unknown" : sanitized
+    }
 }
 
 // MARK: - URL Extensions
@@ -99,6 +169,12 @@ extension Date {
             formatter.timeStyle = .short
             return formatter.string(from: self)
         }
+    }
+    
+    func formattedFilename() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HH_mm_ss"
+        return formatter.string(from: self)
     }
 }
 

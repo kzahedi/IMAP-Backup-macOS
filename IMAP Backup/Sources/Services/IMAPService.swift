@@ -3,6 +3,13 @@ import NIO
 @preconcurrency import NIOSSL
 import Logging
 
+struct IMAPAttachment {
+    let filename: String
+    let mimeType: String
+    let data: Data
+    let size: Int
+}
+
 struct IMAPMessage {
     let uid: UInt32
     let flags: [String]
@@ -13,6 +20,7 @@ struct IMAPMessage {
     let size: Int
     let body: Data
     let headers: [String: String]
+    let attachments: [IMAPAttachment]
 }
 
 struct IMAPFolder {
@@ -127,34 +135,95 @@ final class IMAPConnection: @unchecked Sendable {
         
         // For now, create a demo message to test the backup functionality
         // In a full implementation, this would fetch actual messages from the IMAP server
+        
+        // Create demo attachments
+        let demoAttachments = [
+            IMAPAttachment(
+                filename: "demo_document.txt",
+                mimeType: "text/plain",
+                data: "This is a demo attachment file created by IMAP Backup for macOS.\n\nThis demonstrates how attachments are saved alongside emails.".data(using: .utf8) ?? Data(),
+                size: 100
+            ),
+            IMAPAttachment(
+                filename: "backup_info.json",
+                mimeType: "application/json",
+                data: """
+                {
+                    "backup_system": "IMAP Backup for macOS",
+                    "demo_mode": true,
+                    "filename_format": "SenderName_YYYY-MM-DD_HH_MM_SS",
+                    "features": [
+                        "Attachment support",
+                        "JSON metadata",
+                        "Filesystem-safe filenames"
+                    ]
+                }
+                """.data(using: .utf8) ?? Data(),
+                size: 200
+            )
+        ]
+        
         let demoMessage = IMAPMessage(
             uid: 12345,
             flags: ["\\Seen"],
-            subject: "Demo Email - IMAP Backup Test",
-            from: "test@example.com",
+            subject: "Demo Email - IMAP Backup Test with Attachments",
+            from: "IMAP Backup Demo <demo@imapbackup.example>",
             to: account.username,
             date: Date(),
-            size: 1024,
+            size: 2048,
             body: """
-            From: test@example.com
+            From: IMAP Backup Demo <demo@imapbackup.example>
             To: \(account.username)
-            Subject: Demo Email - IMAP Backup Test
+            Subject: Demo Email - IMAP Backup Test with Attachments
             Date: \(Date())
+            Content-Type: multipart/mixed; boundary="demo-boundary"
+            
+            --demo-boundary
+            Content-Type: text/plain; charset=utf-8
             
             This is a demo email created by IMAP Backup for macOS to test the backup functionality.
             
+            This email includes demo attachments to demonstrate the attachment handling feature:
+            - demo_document.txt (a simple text file)
+            - backup_info.json (JSON metadata about the backup system)
+            
             In a full implementation, this would be replaced with actual email messages fetched
-            from your IMAP server using the IMAP protocol.
+            from your IMAP server using the IMAP protocol, with real attachments extracted from
+            the MIME structure.
+            
+            The filename format follows the Go implementation: SenderName_YYYY-MM-DD_HH_MM_SS
             
             Best regards,
             IMAP Backup for macOS
+            
+            --demo-boundary
+            Content-Type: text/plain; name="demo_document.txt"
+            Content-Disposition: attachment; filename="demo_document.txt"
+            
+            This is a demo attachment file created by IMAP Backup for macOS.
+            
+            This demonstrates how attachments are saved alongside emails.
+            
+            --demo-boundary
+            Content-Type: application/json; name="backup_info.json"
+            Content-Disposition: attachment; filename="backup_info.json"
+            
+            {
+                "backup_system": "IMAP Backup for macOS",
+                "demo_mode": true,
+                "filename_format": "SenderName_YYYY-MM-DD_HH_MM_SS"
+            }
+            
+            --demo-boundary--
             """.data(using: .utf8) ?? Data(),
             headers: [
-                "From": "test@example.com",
+                "From": "IMAP Backup Demo <demo@imapbackup.example>",
                 "To": account.username,
-                "Subject": "Demo Email - IMAP Backup Test",
-                "Date": "\(Date())"
-            ]
+                "Subject": "Demo Email - IMAP Backup Test with Attachments",
+                "Date": "\(Date())",
+                "Content-Type": "multipart/mixed; boundary=\"demo-boundary\""
+            ],
+            attachments: demoAttachments
         )
         
         // Only return the demo message if its UID isn't already excluded

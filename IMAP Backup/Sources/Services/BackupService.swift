@@ -180,10 +180,11 @@ class BackupService: ObservableObject {
         
         var uids: Set<UInt32> = []
         for file in contents {
-            if file.pathExtension == "eml" {
-                let filename = file.deletingPathExtension().lastPathComponent
-                if let uid = UInt32(filename) {
-                    uids.insert(uid)
+            if file.pathExtension == "json" {
+                // Read the JSON metadata to get the UID
+                if let data = try? Data(contentsOf: file),
+                   let metadata = try? JSONDecoder().decode(MessageMetadata.self, from: data) {
+                    uids.insert(metadata.uid)
                 }
             }
         }
@@ -192,13 +193,41 @@ class BackupService: ObservableObject {
     }
     
     nonisolated private func saveMessage(_ message: IMAPMessage, to folderDir: URL) async throws {
-        let messageFile = folderDir.appendingPathComponent("\(message.uid).eml")
-        let metadataFile = folderDir.appendingPathComponent("\(message.uid).json")
+        // Generate filename using sender_date format like Go implementation
+        let senderName = message.from.extractSenderName()
+        let dateString = message.date.formattedFilename()
+        let baseFilename = "\(senderName)_\(dateString)"
+        
+        let messageFile = folderDir.appendingPathComponent("\(baseFilename).eml")
+        let metadataFile = folderDir.appendingPathComponent("\(baseFilename).json")
         
         // Save raw message
         try message.body.write(to: messageFile)
         
-        // Save metadata
+        // Create attachments directory if message has attachments
+        var attachmentFilenames: [String] = []
+        if !message.attachments.isEmpty {
+            let attachmentsDir = folderDir.appendingPathComponent("attachments").appendingPathComponent(baseFilename)
+            try FileManager.default.createDirectory(at: attachmentsDir, withIntermediateDirectories: true)
+            
+            for (index, attachment) in message.attachments.enumerated() {
+                let sanitizedName = attachment.filename.sanitizedForFilename()
+                let attachmentFile = attachmentsDir.appendingPathComponent(sanitizedName)
+                
+                // Handle duplicate filenames by appending index
+                var finalAttachmentFile = attachmentFile
+                if FileManager.default.fileExists(atPath: attachmentFile.path) {
+                    let fileExtension = attachmentFile.pathExtension
+                    let nameWithoutExtension = attachmentFile.deletingPathExtension().lastPathComponent
+                    finalAttachmentFile = attachmentsDir.appendingPathComponent("\(nameWithoutExtension)_\(index).\(fileExtension)")
+                }
+                
+                try attachment.data.write(to: finalAttachmentFile)
+                attachmentFilenames.append(finalAttachmentFile.lastPathComponent)
+            }
+        }
+        
+        // Save metadata with attachment info
         let metadata = MessageMetadata(
             uid: message.uid,
             flags: message.flags,
@@ -207,10 +236,14 @@ class BackupService: ObservableObject {
             to: message.to,
             date: message.date,
             size: message.size,
-            headers: message.headers
+            headers: message.headers,
+            attachments: attachmentFilenames
         )
         
-        let metadataData = try JSONEncoder().encode(metadata)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = .prettyPrinted
+        let metadataData = try encoder.encode(metadata)
         try metadataData.write(to: metadataFile)
     }
 }
@@ -224,4 +257,5 @@ private struct MessageMetadata: Codable {
     let date: Date
     let size: Int
     let headers: [String: String]
+    let attachments: [String]
 }
