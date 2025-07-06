@@ -133,107 +133,114 @@ final class IMAPConnection: @unchecked Sendable {
     func getMessages(in folder: String, excludingUIDs: Set<UInt32> = []) async throws -> [IMAPMessage] {
         try await selectFolder(folder)
         
-        // For now, create a demo message to test the backup functionality
-        // In a full implementation, this would fetch actual messages from the IMAP server
+        // Create multiple demo messages per folder to simulate a realistic backup
+        logger.info("Fetching demo messages from folder: \(folder)")
         
-        // Create demo attachments
-        let demoAttachments = [
-            IMAPAttachment(
-                filename: "demo_document.txt",
-                mimeType: "text/plain",
-                data: "This is a demo attachment file created by IMAP Backup for macOS.\n\nThis demonstrates how attachments are saved alongside emails.".data(using: .utf8) ?? Data(),
-                size: 100
-            ),
-            IMAPAttachment(
-                filename: "backup_info.json",
-                mimeType: "application/json",
-                data: """
-                {
-                    "backup_system": "IMAP Backup for macOS",
-                    "demo_mode": true,
-                    "filename_format": "SenderName_YYYY-MM-DD_HH_MM_SS",
-                    "features": [
-                        "Attachment support",
-                        "JSON metadata",
-                        "Filesystem-safe filenames"
-                    ]
-                }
-                """.data(using: .utf8) ?? Data(),
-                size: 200
-            )
-        ]
+        var demoMessages: [IMAPMessage] = []
+        let messageCount = folder == "INBOX" ? 5 : (folder == "Sent" ? 3 : 2) // Different counts per folder
         
-        let demoMessage = IMAPMessage(
-            uid: 12345,
-            flags: ["\\Seen"],
-            subject: "Demo Email - IMAP Backup Test with Attachments",
-            from: "IMAP Backup Demo <demo@imapbackup.example>",
-            to: account.username,
-            date: Date(),
-            size: 2048,
-            body: """
-            From: IMAP Backup Demo <demo@imapbackup.example>
-            To: \(account.username)
-            Subject: Demo Email - IMAP Backup Test with Attachments
-            Date: \(Date())
-            Content-Type: multipart/mixed; boundary="demo-boundary"
+        for i in 1...messageCount {
+            let uid = UInt32((folder.hashValue % 1000) * 100 + i) // Generate unique UIDs per folder
             
-            --demo-boundary
-            Content-Type: text/plain; charset=utf-8
-            
-            This is a demo email created by IMAP Backup for macOS to test the backup functionality.
-            
-            This email includes demo attachments to demonstrate the attachment handling feature:
-            - demo_document.txt (a simple text file)
-            - backup_info.json (JSON metadata about the backup system)
-            
-            In a full implementation, this would be replaced with actual email messages fetched
-            from your IMAP server using the IMAP protocol, with real attachments extracted from
-            the MIME structure.
-            
-            The filename format follows the Go implementation: SenderName_YYYY-MM-DD_HH_MM_SS
-            
-            Best regards,
-            IMAP Backup for macOS
-            
-            --demo-boundary
-            Content-Type: text/plain; name="demo_document.txt"
-            Content-Disposition: attachment; filename="demo_document.txt"
-            
-            This is a demo attachment file created by IMAP Backup for macOS.
-            
-            This demonstrates how attachments are saved alongside emails.
-            
-            --demo-boundary
-            Content-Type: application/json; name="backup_info.json"
-            Content-Disposition: attachment; filename="backup_info.json"
-            
-            {
-                "backup_system": "IMAP Backup for macOS",
-                "demo_mode": true,
-                "filename_format": "SenderName_YYYY-MM-DD_HH_MM_SS"
+            // Skip if already excluded
+            if excludingUIDs.contains(uid) {
+                continue
             }
             
-            --demo-boundary--
-            """.data(using: .utf8) ?? Data(),
-            headers: [
-                "From": "IMAP Backup Demo <demo@imapbackup.example>",
-                "To": account.username,
-                "Subject": "Demo Email - IMAP Backup Test with Attachments",
-                "Date": "\(Date())",
-                "Content-Type": "multipart/mixed; boundary=\"demo-boundary\""
-            ],
-            attachments: demoAttachments
-        )
-        
-        // Only return the demo message if its UID isn't already excluded
-        if !excludingUIDs.contains(demoMessage.uid) {
-            logger.info("Simulating backup of 1 demo message from folder: \(folder)")
-            return [demoMessage]
-        } else {
-            logger.info("Demo message already backed up for folder: \(folder)")
-            return []
+            let senders = [
+                "System Notification <noreply@system.com>",
+                "Newsletter <updates@company.com>",
+                "John Doe <john@example.com>",
+                "Support Team <support@service.com>",
+                "Marketing <marketing@business.com>"
+            ]
+            
+            let subjects = [
+                "Important System Update",
+                "Weekly Newsletter #\(i)",
+                "Meeting Invitation for Tomorrow",
+                "Your Order Confirmation #\(1000 + i)",
+                "Welcome to Our Service!"
+            ]
+            
+            let sender = senders[i % senders.count]
+            let subject = subjects[i % subjects.count]
+            let date = Date().addingTimeInterval(-Double(i * 3600 * 24)) // Spread over days
+            
+            // Create attachments for some messages
+            var attachments: [IMAPAttachment] = []
+            if i % 3 == 0 { // Every third message has attachments
+                attachments = [
+                    IMAPAttachment(
+                        filename: "document_\(i).txt",
+                        mimeType: "text/plain",
+                        data: "Demo attachment #\(i) for message in \(folder) folder.\nUID: \(uid)".data(using: .utf8) ?? Data(),
+                        size: 50 + i * 10
+                    )
+                ]
+            }
+            
+            let message = IMAPMessage(
+                uid: uid,
+                flags: i % 2 == 0 ? ["\\Seen"] : ["\\Recent"],
+                subject: "\(subject) (Folder: \(folder))",
+                from: sender,
+                to: account.username,
+                date: date,
+                size: 1024 + i * 256,
+                body: """
+                From: \(sender)
+                To: \(account.username)
+                Subject: \(subject) (Folder: \(folder))
+                Date: \(date)
+                Message-ID: <demo-\(uid)@imapbackup.example>
+                \(attachments.isEmpty ? "" : "Content-Type: multipart/mixed; boundary=\"demo-\(uid)\"")
+                
+                \(attachments.isEmpty ? "" : "--demo-\(uid)")
+                \(attachments.isEmpty ? "" : "Content-Type: text/plain; charset=utf-8")
+                \(attachments.isEmpty ? "" : "")
+                
+                This is demo email #\(i) in the \(folder) folder.
+                
+                Generated by IMAP Backup for macOS to simulate a realistic email backup scenario.
+                
+                Message details:
+                - UID: \(uid)
+                - Folder: \(folder)
+                - Sender: \(sender)
+                - Has attachments: \(attachments.isEmpty ? "No" : "Yes")
+                
+                This demonstrates the backup process working across multiple messages and folders.
+                
+                Best regards,
+                Demo Email System
+                
+                \(attachments.isEmpty ? "" : attachments.map { att in
+                    """
+                    --demo-\(uid)
+                    Content-Type: \(att.mimeType); name="\(att.filename)"
+                    Content-Disposition: attachment; filename="\(att.filename)"
+                    
+                    \(String(data: att.data, encoding: .utf8) ?? "Binary data")
+                    """
+                }.joined(separator: "\n"))
+                \(attachments.isEmpty ? "" : "--demo-\(uid)--")
+                """.data(using: .utf8) ?? Data(),
+                headers: [
+                    "From": sender,
+                    "To": account.username,
+                    "Subject": "\(subject) (Folder: \(folder))",
+                    "Date": "\(date)",
+                    "Message-ID": "<demo-\(uid)@imapbackup.example>"
+                ],
+                attachments: attachments
+            )
+            
+            demoMessages.append(message)
         }
+        
+        logger.info("Generated \(demoMessages.count) demo messages for folder: \(folder)")
+        return demoMessages
     }
     
     func disconnect() async {

@@ -21,14 +21,18 @@ class BackupService: ObservableObject {
         }
         
         isRunning = true
-        logger.info("Starting backup for \(accounts.count) accounts")
+        logger.info("=== STARTING BACKUP ===")
+        logger.info("Backing up \(accounts.count) accounts to: \(backupDirectory.path)")
+        for account in accounts {
+            logger.info("- Account: \(account.name) (\(account.username))")
+        }
         
         currentTask = Task {
             await progress.startBackup(accounts: accounts)
             
             do {
                 try await performBackup(accounts: accounts, backupDirectory: backupDirectory, progress: progress)
-                logger.info("Backup completed successfully")
+                logger.info("\n🎉 === BACKUP COMPLETED SUCCESSFULLY ===")
                 await progress.completeBackup()
             } catch {
                 logger.error("Backup failed: \(error)")
@@ -62,7 +66,8 @@ class BackupService: ObservableObject {
                 return
             }
             
-            logger.info("Starting backup for account: \(account.name)")
+            logger.info("\n=== PROCESSING ACCOUNT: \(account.name) ===")
+            logger.info("Account details: \(account.username) @ \(account.host):\(account.port)")
             
             do {
                 try await backupAccount(account, backupDirectory: backupDirectory, progress: progress)
@@ -101,6 +106,8 @@ class BackupService: ObservableObject {
         
         // Get folder list
         let folders = try await connection.listFolders()
+        logger.info("Found \(folders.count) folders for account \(account.name): \(folders.map { $0.name }.joined(separator: ", "))")
+        
         await progress.updateAccountProgress(
             accountName: account.name,
             totalFolders: folders.count
@@ -115,14 +122,14 @@ class BackupService: ObservableObject {
                 return
             }
             
-            logger.info("Processing folder: \(folder.name)")
+            logger.info("\n--- Processing folder: \(folder.name) ---")
             await progress.updateAccountProgress(
                 accountName: account.name,
                 currentFolder: folder.name
             )
             
             // Add a small delay to make progress visible
-            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            try await Task.sleep(nanoseconds: 500_000_000) // 0.5 second
             
             let newEmails = try await backupFolder(
                 folder,
@@ -140,10 +147,13 @@ class BackupService: ObservableObject {
                 newEmails: totalNewEmails
             )
             
-            logger.info("Completed folder \(folder.name): \(newEmails) new emails")
+            logger.info("✓ Completed folder \(folder.name): \(newEmails) new emails (Total so far: \(totalNewEmails))")
         }
         
-        logger.info("Completed backup for account: \(account.name), new emails: \(totalNewEmails)")
+        logger.info("🎉 COMPLETED BACKUP for account: \(account.name)")
+        logger.info("   → Total new emails: \(totalNewEmails)")
+        logger.info("   → Folders processed: \(completedFolders)/\(folders.count)")
+        logger.info("   → Saved to: \(accountDir.path)")
     }
     
     nonisolated private func backupFolder(
@@ -158,19 +168,29 @@ class BackupService: ObservableObject {
         
         // Get existing message UIDs to avoid duplicates
         let existingUIDs = getExistingMessageUIDs(in: folderDir)
+        logger.info("Found \(existingUIDs.count) existing messages in \(folder.name)")
         
         // Fetch new messages
         let messages = try await connection.getMessages(in: folder.name, excludingUIDs: existingUIDs)
+        logger.info("Retrieved \(messages.count) new messages from \(folder.name)")
         
-        for message in messages {
+        var savedCount = 0
+        for (index, message) in messages.enumerated() {
             guard !Task.isCancelled else {
-                return 0
+                logger.info("Backup cancelled, saved \(savedCount)/\(messages.count) messages")
+                return savedCount
             }
             
+            logger.info("Saving message \(index + 1)/\(messages.count): \(message.subject)")
             try await saveMessage(message, to: folderDir)
+            savedCount += 1
+            
+            // Small delay between messages to make progress visible
+            try await Task.sleep(nanoseconds: 200_000_000) // 0.2 second
         }
         
-        return messages.count
+        logger.info("Successfully saved \(savedCount) messages to \(folderDir.lastPathComponent)")
+        return savedCount
     }
     
     nonisolated private func getExistingMessageUIDs(in folderDir: URL) -> Set<UInt32> {
